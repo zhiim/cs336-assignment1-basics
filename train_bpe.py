@@ -1,5 +1,6 @@
 import os
-from collections import defaultdict, deque
+from collections import defaultdict, deque, Counter
+from multiprocessing import Pool
 import regex as re
 from typing import BinaryIO
 
@@ -54,10 +55,31 @@ def find_chunk_boundaries(
     return sorted(set(chunk_boundaries))
 
 
+def pre_tokenization(args):
+    file_path, split_pattern, start, end = args
+    pre_tokens_count = Counter()
+
+    with open(file_path, "rb") as file:
+        file.seek(start)  # read chunk in utf-8 string, not bytes
+        chunk = file.read(end - start).decode("utf-8", errors="ignore")
+
+        # 根据special token将每个chunk划分成多个doc段
+        splited_doc = re.split(split_pattern, chunk)
+
+        for doc in splited_doc:
+            # 在每个doc内进行pre-tokenization
+            match_iterator = re.finditer(PAT, doc)
+            for token in match_iterator:
+                pre_tokens_count[tuple(token.group().encode("utf-8"))] += 1
+
+    return pre_tokens_count
+
+
 def train_bpe(
     input_path: str,
     vocab_size: int,
     special_tokens: list[str] = ["<|endoftext|>"],
+    num_processes=32,
 ) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
     """Training a BPE tokenizer
 
@@ -86,29 +108,22 @@ def train_bpe(
 
     # -- 2. pre-tokenization -----------------------------------------------
 
-    pre_tokens_count = defaultdict(int)  # 用于存储pre token和它们对于的计数
+    pre_tokens_count = Counter()  # 用于存储pre token和它们对于的计数
 
     special_tokens = [re.escape(token) for token in special_tokens]
     split_pattern = "|".join(special_tokens)
 
     # divide the whole text file into chunks
-    num_processes = 4
     with open(input_path, "rb") as f:
         boundaries = find_chunk_boundaries(f, num_processes, b"<|endoftext|>")
 
-        # read chunk one by one
-        for start, end in zip(boundaries[:-1], boundaries[1:]):
-            f.seek(start)  # read chunk in utf-8 string, not bytes
-            chunk = f.read(end - start).decode("utf-8", errors="ignore")
+    # read chunk one by one
+    args_list = [(input_path, split_pattern, start, end) for start, end in zip(boundaries[:-1], boundaries[1:])]
 
-            # 根据special token将每个chunk划分成多个doc段
-            splited_doc = re.split(split_pattern, chunk)
-
-            for doc in splited_doc:
-                # 在每个doc内进行pre-tokenization
-                match_iterator = re.finditer(PAT, doc)
-                for token in match_iterator:
-                    pre_tokens_count[tuple(token.group().encode("utf-8"))] += 1
+    with Pool() as pool:
+        results = pool.map(pre_tokenization, args_list)
+    for result in results:
+        pre_tokens_count.update(result)
 
     # -- 3. BPE merges -----------------------------------------------------
 
@@ -134,7 +149,7 @@ def train_bpe(
         merges.append((vocab[merge_pair[0]], vocab[merge_pair[1]]))
 
         # 将新merge更新到pre token
-        new_pre_tokens_count = defaultdict(int)
+        new_pre_tokens_count = Counter()
         for pre_token, count in pre_tokens_count.items():
             dq = deque(pre_token)
             new_token = []
