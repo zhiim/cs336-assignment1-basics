@@ -1,6 +1,5 @@
 import os
-from collections import defaultdict, deque, Counter
-from multiprocessing import Pool
+from collections import defaultdict, Counter
 import regex as re
 from typing import BinaryIO
 
@@ -120,26 +119,29 @@ def train_bpe(
     # read chunk one by one
     args_list = [(input_path, split_pattern, start, end) for start, end in zip(boundaries[:-1], boundaries[1:])]
 
-    with Pool() as pool:
-        results = pool.map(pre_tokenization, args_list)
-    for result in results:
-        pre_tokens_count.update(result)
+    # with Pool() as pool:
+    #     results = pool.map(pre_tokenization, args_list)
+    # for result in results:
+    #     pre_tokens_count.update(result)
+
+    for args in args_list:
+        pre_tokens_count.update(pre_tokenization(args))
 
     # -- 3. BPE merges -----------------------------------------------------
 
     merges = []
 
+    pairs_count = defaultdict(int)
+
+    # 对于每个pre token的每两个相邻byte，计算出现次数
+    for pre_token, count in pre_tokens_count.items():
+        for idx1, idx2 in zip(pre_token, pre_token[1:]):
+            pairs_count[(idx1, idx2)] += count
+
     # vocab size达到要求就结束
     for new_id in range(len(vocab), vocab_size):
-        pairs_count = defaultdict(int)
-
-        # 对于每个pre token的每两个相邻byte，计算出现次数
-        for pre_token, count in pre_tokens_count.items():
-            for idx1, idx2 in zip(pre_token, pre_token[1:]):
-                pairs_count[(idx1, idx2)] += count
-
-        # 找到出现次数最多的pair
-        merge_pair = max(pairs_count, key=pairs_count.get)
+        # 找到出现次数最多的pair，并且字典序最大的
+        merge_pair = max(pairs_count, key=lambda key: (pairs_count[key], key))
 
         # 添加到vocab中
         new_bytes = vocab[merge_pair[0]] + vocab[merge_pair[1]]
@@ -148,22 +150,32 @@ def train_bpe(
 
         merges.append((vocab[merge_pair[0]], vocab[merge_pair[1]]))
 
-        # 将新merge更新到pre token
         new_pre_tokens_count = Counter()
+        # 根据新的merge，重新计算pairs_count
         for pre_token, count in pre_tokens_count.items():
-            dq = deque(pre_token)
-            new_token = []
+            new_pre_token = []
 
-            while dq:
-                cur = dq.popleft()
-                # 如果找到了pre token中和merge_pair相同的
-                if len(dq) >= 1 and (cur, dq[0]) == merge_pair:
-                    new_token.append(new_id)
-                    dq.popleft()
+            idx = 0
+            while idx <= len(pre_token) - 1:
+                # 如果当前pre token里面发现了merge pair
+                if idx <= len(pre_token) - 2 and (pre_token[idx], pre_token[idx + 1]) == merge_pair:
+                    pairs_count[merge_pair] -= count
+                    # 改变和该merge pair的元素有重合的pair计数
+                    if idx - 1 >= 0:
+                        pairs_count[(pre_token[idx - 1], pre_token[idx])] -= count
+                        pairs_count[(pre_token[idx - 1], new_id)] += count
+                    if idx + 2 <= len(pre_token) - 1:
+                        pairs_count[(pre_token[idx + 1], pre_token[idx + 2])] -= count
+                        pairs_count[(new_id, pre_token[idx + 2])] += count
+                    # 更新pre_token，将merge pair合并成一个
+                    new_pre_token.append(new_id)
+                    idx += 2
                 else:
-                    new_token.append(cur)
+                    new_pre_token.append(pre_token[idx])
+                    idx += 1
 
-            new_pre_tokens_count[tuple(new_token)] += count
+            new_pre_tokens_count[tuple(new_pre_token)] += count
+
         pre_tokens_count = new_pre_tokens_count
 
     return (vocab, merges)
