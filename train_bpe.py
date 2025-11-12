@@ -130,11 +130,12 @@ def train_bpe(
     merges = []
 
     pairs_count = defaultdict(int)
-
+    pairs_in_pre_token = defaultdict(set)  # 记录当前pair出现在哪些pre token中
     # 对于每个pre token的每两个相邻byte，计算出现次数
     for pre_token, count in pre_tokens_count.items():
         for idx1, idx2 in zip(pre_token, pre_token[1:]):
             pairs_count[(idx1, idx2)] += count
+            pairs_in_pre_token[(idx1, idx2)].add(pre_token)
 
     # vocab size达到要求就结束
     for new_id in range(len(vocab), vocab_size):
@@ -148,33 +149,42 @@ def train_bpe(
 
         merges.append((vocab[merge_pair[0]], vocab[merge_pair[1]]))
 
-        new_pre_tokens_count = Counter()
-        # 根据新的merge，重新计算pairs_count
-        for pre_token, count in pre_tokens_count.items():
-            new_pre_token = []
+        # 根据新的merge，重新计算pairs_count，并且更新pre token
+        for pre_token in list(pairs_in_pre_token[merge_pair]):  # 只需要更新包含了merge pair的pre token
+            count = pre_tokens_count[pre_token]
 
+            # 将所有和旧pre token的相关记录全部清除
+            pre_tokens_count.pop(pre_token)
+            for pair in zip(pre_token, pre_token[1:]):
+                pairs_count[pair] -= count
+                if pairs_count[pair] == 0:
+                    pairs_count.pop(pair)
+                    if pair in pairs_in_pre_token:
+                        pairs_in_pre_token.pop(pair)
+
+                elif pre_token in pairs_in_pre_token[pair]:
+                    pairs_in_pre_token[pair].remove(pre_token)
+
+            # 根据merge pair更新pre token
+            new_pre_token = []
             idx = 0
             while idx <= len(pre_token) - 1:
-                # 如果当前pre token里面发现了merge pair
+                # 如果发现了merge pair
                 if idx <= len(pre_token) - 2 and (pre_token[idx], pre_token[idx + 1]) == merge_pair:
-                    pairs_count[merge_pair] -= count
-                    # 改变和该merge pair的元素有重合的pair计数
-                    if idx - 1 >= 0:
-                        pairs_count[(pre_token[idx - 1], pre_token[idx])] -= count
-                        pairs_count[(pre_token[idx - 1], new_id)] += count
-                    if idx + 2 <= len(pre_token) - 1:
-                        pairs_count[(pre_token[idx + 1], pre_token[idx + 2])] -= count
-                        pairs_count[(new_id, pre_token[idx + 2])] += count
-                    # 更新pre_token，将merge pair合并成一个
                     new_pre_token.append(new_id)
                     idx += 2
                 else:
                     new_pre_token.append(pre_token[idx])
                     idx += 1
 
-            new_pre_tokens_count[tuple(new_pre_token)] += count
+            # 使用更新后的pre token替代
+            new_pre_token = tuple(new_pre_token)
+            pre_tokens_count[new_pre_token] = count
 
-        pre_tokens_count = new_pre_tokens_count
+            # 使用新pre token更新pair记录
+            for pair in zip(new_pre_token, new_pre_token[1:]):
+                pairs_count[pair] += count
+                pairs_in_pre_token[pair].add(new_pre_token)
 
     return (vocab, merges)
 
