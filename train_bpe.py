@@ -1,6 +1,7 @@
 import os
 from collections import defaultdict, Counter
 import regex as re
+from multiprocessing import Pool
 from typing import BinaryIO
 
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
@@ -119,13 +120,10 @@ def train_bpe(
     # read chunk one by one
     args_list = [(input_path, split_pattern, start, end) for start, end in zip(boundaries[:-1], boundaries[1:])]
 
-    # with Pool() as pool:
-    #     results = pool.map(pre_tokenization, args_list)
-    # for result in results:
-    #     pre_tokens_count.update(result)
-
-    for args in args_list:
-        pre_tokens_count.update(pre_tokenization(args))
+    with Pool() as pool:
+        results = pool.map(pre_tokenization, args_list)
+    for result in results:
+        pre_tokens_count.update(result)
 
     # -- 3. BPE merges -----------------------------------------------------
 
