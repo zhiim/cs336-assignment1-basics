@@ -1,10 +1,12 @@
+import logging
 import os
-from collections import defaultdict, Counter
-import regex as re
+from collections import Counter, defaultdict
 from multiprocessing import Pool
 from typing import BinaryIO
 
-PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+import regex as re
+
+PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""  # noqa
 
 
 def find_chunk_boundaries(
@@ -17,7 +19,9 @@ def find_chunk_boundaries(
     May return fewer chunks if the boundaries end up overlapping.
     Chunk boundaries occur at the beginning of a special token.
     """
-    assert isinstance(split_special_token, bytes), "Must represent special token as a bytestring"
+    assert isinstance(split_special_token, bytes), (
+        "Must represent special token as a bytestring"
+    )
 
     # Get total file size in bytes
     file.seek(0, os.SEEK_END)
@@ -51,7 +55,8 @@ def find_chunk_boundaries(
                 break
             initial_position += mini_chunk_size
 
-    # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
+    # Make sure all boundaries are unique, but might be fewer than
+    # desired_num_chunks
     return sorted(set(chunk_boundaries))
 
 
@@ -72,6 +77,7 @@ def pre_tokenization(args):
             for token in match_iterator:
                 pre_tokens_count[tuple(token.group().encode("utf-8"))] += 1
 
+    logging.debug(f"pre-tokenization in chunk: {start}-{end} finished")
     return pre_tokens_count
 
 
@@ -85,49 +91,66 @@ def train_bpe(
 
     Args:
         input_path: Path to a text file with BPE tokenizer training data.
-        vocab_size: A positive integer that defines the maximum final vocabulary size.
-        special_tokens: A list of strings to add to the vocabulary. These special tokens do not otherwise affect BPE training
+        vocab_size: A positive integer that defines the maximum final vocabulary
+            size.
+        special_tokens: A list of strings to add to the vocabulary. These
+            special tokens do not otherwise affect BPE training
 
     Returns:
-        vocab: The tokenizer vocabulary, a mapping from int (token ID in the vocabulary) to bytes (token bytes).
-        merges: A list of BPE merges produced from training. Each list item is a tuple of bytes (<token1>, <token2>), representing that <token1> was merged with <token2>. The merges should be ordered by order of creation.
+        vocab: The tokenizer vocabulary, a mapping from int (token ID in the
+            vocabulary) to bytes (token bytes).
+        merges: A list of BPE merges produced from training. Each list item is a
+            tuple of bytes (<token1>, <token2>), representing that <token1> was
+            merged with <token2>. The merges should be ordered by order of
+            creation.
     """
     # -- 1. initialize vocabulary ------------------------------------------
+    logging.info("1. initialize vocabulary")
 
     # all 256 possible byte values
     vocab = {i: bytes([i]) for i in range(256)}
-    vocab_reverse = {bytes([i]): i for i in range(256)}
 
     # and special tokens
     new_ids = len(vocab)
     for token in special_tokens:
-        token_encode = token.encode("utf-8")
-        if token_encode not in vocab_reverse:
-            vocab[new_ids] = token_encode
-            vocab_reverse[token_encode] = new_ids
-            new_ids += 1
+        vocab[new_ids] = token.encode("utf-8")
+        new_ids += 1
+
+    logging.info("vocabulary initiaed")
+    logging.info("-" * 40)
 
     # -- 2. pre-tokenization -----------------------------------------------
+    logging.info("2. pre-tokenization")
 
     pre_tokens_count = Counter()  # 用于存储pre token和它们对于的计数
-
-    special_tokens = [re.escape(token) for token in special_tokens]
-    split_pattern = "|".join(special_tokens)
 
     # divide the whole text file into chunks
     first_special_token = special_tokens[0].encode("utf-8")
     with open(input_path, "rb") as f:
-        boundaries = find_chunk_boundaries(f, num_processes, first_special_token)
+        boundaries = find_chunk_boundaries(
+            f, num_processes, first_special_token
+        )
+    logging.info("chunk boundaries found")
 
     # read chunk one by one
-    args_list = [(input_path, split_pattern, start, end) for start, end in zip(boundaries[:-1], boundaries[1:])]
+    special_tokens = [re.escape(token) for token in special_tokens]
+    split_pattern = "|".join(special_tokens)
+
+    args_list = [
+        (input_path, split_pattern, start, end)
+        for start, end in zip(boundaries[:-1], boundaries[1:])
+    ]
 
     with Pool() as pool:
         results = pool.map(pre_tokenization, args_list)
     for result in results:
         pre_tokens_count.update(result)
 
+    logging.info("pre-tokenization finied")
+    logging.info("-" * 40)
+
     # -- 3. BPE merges -----------------------------------------------------
+    logging.info("3. BPE merge")
 
     merges = []
 
@@ -138,21 +161,34 @@ def train_bpe(
         for idx1, idx2 in zip(pre_token, pre_token[1:]):
             pairs_count[(idx1, idx2)] += count
             pairs_in_pre_token[(idx1, idx2)].add(pre_token)
+    logging.info("all pairs counting finished")
 
     # vocab size达到要求就结束
-    for new_id in range(len(vocab), vocab_size):
+    vocab_size_start = len(vocab)
+    for new_id in range(vocab_size_start, vocab_size):
+        logging.info(
+            f"merge loop {new_id - vocab_size_start + 1}/{vocab_size - vocab_size_start}"  # noqa
+        )
         # 找到出现次数最多的pair，并且字典序最大的
-        merge_pair, _ = max(pairs_count.items(), key=lambda items: (items[1], (vocab[items[0][0]], vocab[items[0][1]])))
+        merge_pair, _ = max(
+            pairs_count.items(),
+            key=lambda items: (
+                items[1],
+                (vocab[items[0][0]], vocab[items[0][1]]),
+            ),
+        )
 
         # 添加到vocab中
         new_bytes = vocab[merge_pair[0]] + vocab[merge_pair[1]]
         vocab[new_id] = new_bytes
-        vocab_reverse[new_bytes] = new_id
 
         merges.append((vocab[merge_pair[0]], vocab[merge_pair[1]]))
 
         # 根据新的merge，重新计算pairs_count，并且更新pre token
-        for pre_token in list(pairs_in_pre_token[merge_pair]):  # 只需要更新包含了merge pair的pre token
+        logging.info("updating pre-tokens for merging ...")
+        for pre_token in list(
+            pairs_in_pre_token[merge_pair]
+        ):  # 只需要更新包含了merge pair的pre token
             if pre_token not in pre_tokens_count:
                 continue
 
@@ -165,7 +201,10 @@ def train_bpe(
                 if pairs_count[pair] == 0:
                     pairs_count.pop(pair)
 
-                if pair in pairs_in_pre_token and pre_token in pairs_in_pre_token[pair]:
+                if (
+                    pair in pairs_in_pre_token
+                    and pre_token in pairs_in_pre_token[pair]
+                ):
                     pairs_in_pre_token[pair].remove(pre_token)
                     if not pairs_in_pre_token[pair]:
                         pairs_in_pre_token.pop(pair)
@@ -175,7 +214,10 @@ def train_bpe(
             idx = 0
             while idx <= len(pre_token) - 1:
                 # 如果发现了merge pair
-                if idx <= len(pre_token) - 2 and (pre_token[idx], pre_token[idx + 1]) == merge_pair:
+                if (
+                    idx <= len(pre_token) - 2
+                    and (pre_token[idx], pre_token[idx + 1]) == merge_pair
+                ):
                     new_pre_token.append(new_id)
                     idx += 2
                 else:
@@ -191,10 +233,7 @@ def train_bpe(
                 pairs_count[pair] += count
                 pairs_in_pre_token[pair].add(new_pre_token)
 
+    logging.info("merge finished")
+    logging.info("-" * 40)
+
     return (vocab, merges)
-
-
-if __name__ == "__main__":
-    vocab, merges = train_bpe("./data/test.txt", vocab_size=300)
-    print(vocab)
-    print(merges)
