@@ -101,9 +101,10 @@ def train_bpe(
     # and special tokens
     new_ids = len(vocab)
     for token in special_tokens:
-        if token not in vocab_reverse:
-            vocab[new_ids] = token.encode("utf-8")
-            vocab_reverse[token.encode("utf-8")] = new_ids
+        token_encode = token.encode("utf-8")
+        if token_encode not in vocab_reverse:
+            vocab[new_ids] = token_encode
+            vocab_reverse[token_encode] = new_ids
             new_ids += 1
 
     # -- 2. pre-tokenization -----------------------------------------------
@@ -114,8 +115,9 @@ def train_bpe(
     split_pattern = "|".join(special_tokens)
 
     # divide the whole text file into chunks
+    first_special_token = special_tokens[0].encode("utf-8")
     with open(input_path, "rb") as f:
-        boundaries = find_chunk_boundaries(f, num_processes, b"<|endoftext|>")
+        boundaries = find_chunk_boundaries(f, num_processes, first_special_token)
 
     # read chunk one by one
     args_list = [(input_path, split_pattern, start, end) for start, end in zip(boundaries[:-1], boundaries[1:])]
@@ -140,7 +142,7 @@ def train_bpe(
     # vocab size达到要求就结束
     for new_id in range(len(vocab), vocab_size):
         # 找到出现次数最多的pair，并且字典序最大的
-        merge_pair = max(pairs_count, key=lambda key: (pairs_count[key], key))
+        merge_pair, _ = max(pairs_count.items(), key=lambda items: (items[1], (vocab[items[0][0]], vocab[items[0][1]])))
 
         # 添加到vocab中
         new_bytes = vocab[merge_pair[0]] + vocab[merge_pair[1]]
@@ -151,6 +153,9 @@ def train_bpe(
 
         # 根据新的merge，重新计算pairs_count，并且更新pre token
         for pre_token in list(pairs_in_pre_token[merge_pair]):  # 只需要更新包含了merge pair的pre token
+            if pre_token not in pre_tokens_count:
+                continue
+
             count = pre_tokens_count[pre_token]
 
             # 将所有和旧pre token的相关记录全部清除
@@ -159,11 +164,11 @@ def train_bpe(
                 pairs_count[pair] -= count
                 if pairs_count[pair] == 0:
                     pairs_count.pop(pair)
-                    if pair in pairs_in_pre_token:
-                        pairs_in_pre_token.pop(pair)
 
-                elif pre_token in pairs_in_pre_token[pair]:
+                if pair in pairs_in_pre_token and pre_token in pairs_in_pre_token[pair]:
                     pairs_in_pre_token[pair].remove(pre_token)
+                    if not pairs_in_pre_token[pair]:
+                        pairs_in_pre_token.pop(pair)
 
             # 根据merge pair更新pre token
             new_pre_token = []
@@ -179,7 +184,7 @@ def train_bpe(
 
             # 使用更新后的pre token替代
             new_pre_token = tuple(new_pre_token)
-            pre_tokens_count[new_pre_token] = count
+            pre_tokens_count[new_pre_token] += count
 
             # 使用新pre token更新pair记录
             for pair in zip(new_pre_token, new_pre_token[1:]):
