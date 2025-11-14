@@ -17,15 +17,17 @@ class BPETokenizer:
         self.vocab = vocab
         self.merges = merges
 
+        self.vocab_reverse = {v: k for k, v in self.vocab.items()}
+
         # add special tokens
-        for token in special_tokens:
-            token_encode = token.encode("utf-8")
-            if token_encode not in self.vocab:
-                self.vocab[len(self.vocab)] = token_encode
+        if special_tokens is not None:
+            for token in special_tokens:
+                token_encode = token.encode("utf-8")
+                if token_encode not in self.vocab_reverse:
+                    self.vocab[len(self.vocab)] = token_encode
+                    self.vocab_reverse[token_encode] = len(self.vocab_reverse)
 
         self.special_tokens = special_tokens
-
-        self.vocab_reverse = {v: k for k, v in self.vocab.items()}
 
         self.pat = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""  # noqa
 
@@ -51,35 +53,47 @@ class BPETokenizer:
 
     def encode(self, text: str) -> list[int]:
         """Encode an input text into a sequence of token IDs"""
-        special_tokens = [re.escape(token) for token in self.special_tokens]
-        split_pattern = "|".join(special_tokens)
-
-        docs = re.split(f"({split_pattern})", text)
-
         token_ids = []
-        for doc in docs:
-            token_ids.extend(self._encode_doc(doc))
+
+        if self.special_tokens is not None:
+            # 先对special tokens根据长短排序，防止某些较长的special token被前面
+            # 的较短special token切分
+            special_tokens = sorted(self.special_tokens, key=len, reverse=True)
+            special_tokens = [re.escape(token) for token in special_tokens]
+            split_pattern = "|".join(special_tokens)
+
+            docs = re.split(f"({split_pattern})", text)
+
+            for doc in docs:
+                token_ids.extend(self._encode_doc(doc))
+        else:
+            token_ids = self._encode_doc(text)
 
         return token_ids
 
     def _encode_doc(self, doc) -> list[int]:
         # directly encode special tokens
-        if doc in self.special_tokens:
+        if self.special_tokens is not None and doc in self.special_tokens:
             return [self.vocab_reverse[doc.encode("utf-8")]]
 
         # pre-tokenization first
         token_iter = re.finditer(self.pat, doc)
         pre_tokens = []
         for token in token_iter:
-            pre_tokens.append([bytes([i]) for i in token.encode("utf-8")])
+            pre_tokens.append(
+                [bytes([i]) for i in token.group().encode("utf-8")]
+            )
 
         for pair in self.merges:
             new_pre_tokens = []
             for token in pre_tokens:
                 new_token = []
                 idx = 0
-                while idx <= len(token) - 2:
-                    if pair == (token[idx], token[idx + 1]):
+                while idx < len(token):
+                    if idx <= len(token) - 2 and pair == (
+                        token[idx],
+                        token[idx + 1],
+                    ):
                         new_token.append(token[idx] + token[idx + 1])
                         idx += 2
                     else:
@@ -100,7 +114,9 @@ class BPETokenizer:
         memory-eﬀicient tokenization of large files that we cannot directly load
         into memory."""
         for text in iterable:
-            yield self.encode(text)
+            token_ids =  self.encode(text)
+            for token_id in token_ids:
+                yield token_id
 
     def decode(self, ids: list[int]) -> str:
         """Decode a sequence of token IDs into text."""
@@ -108,4 +124,4 @@ class BPETokenizer:
         for token_id in ids:
             text += self.vocab[token_id]
 
-        return text.decode("utif-0", errors="replace")
+        return text.decode("utf-8", errors="replace")
