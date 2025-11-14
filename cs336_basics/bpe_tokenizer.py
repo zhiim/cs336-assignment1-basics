@@ -1,4 +1,5 @@
 import pickle
+from collections import defaultdict
 from typing import Iterable
 
 import regex as re
@@ -15,9 +16,10 @@ class BPETokenizer:
         (optionally) a list of special tokens.
         """
         self.vocab = vocab
-        self.merges = merges
-
         self.vocab_reverse = {v: k for k, v in self.vocab.items()}
+
+        # 使用dict存储merges以及优先级，以高速查找
+        self.merges = {merge_pair: i for i, merge_pair in enumerate(merges)}
 
         # add special tokens
         if special_tokens is not None:
@@ -79,28 +81,43 @@ class BPETokenizer:
         # pre-tokenization first
         token_iter = re.finditer(self.pat, doc)
         pre_tokens = []
-        for token in token_iter:
-            pre_tokens.append(
-                [bytes([i]) for i in token.group().encode("utf-8")]
-            )
+        pre_tokens_pos = defaultdict(list)
+        for idx, token in enumerate(token_iter):
+            token_str = token.group()
+            pre_tokens.append([bytes([i]) for i in token_str.encode("utf-8")])
+            # 可能存在重复pre token记录他们出现的位置
+            # 遍历的时候直接遍历pre_token_pos，可以减小遍历数量
+            pre_tokens_pos[token_str].append(idx)
 
-        for pair in self.merges:
-            new_pre_tokens = []
-            for token in pre_tokens:
-                new_token = []
+        for pre_token in pre_tokens_pos.keys():
+            cur_token = [bytes([i]) for i in pre_token.encode("utf-8")]
+            while True:
+                mergeable = []
+                for idx in range(len(cur_token) - 1):
+                    if (cur_token[idx], cur_token[idx + 1]) in self.merges:
+                        mergeable.append((cur_token[idx], cur_token[idx + 1]))
+                # 如果当前pre token已经没法合并，直接退出循环
+                if len(mergeable) == 0:
+                    break
+                # 找出优先级最高的merge
+                best_merge = min(mergeable, key=lambda x: self.merges[x])
+                # 开始merge当前token
+                new_pre_token = []
                 idx = 0
-                while idx < len(token):
-                    if idx <= len(token) - 2 and pair == (
-                        token[idx],
-                        token[idx + 1],
+                while idx < len(cur_token):
+                    if idx < len(cur_token) - 1 and best_merge == (
+                        cur_token[idx],
+                        cur_token[idx + 1],
                     ):
-                        new_token.append(token[idx] + token[idx + 1])
+                        new_pre_token.append(best_merge[0] + best_merge[1])
                         idx += 2
                     else:
-                        new_token.append(token[idx])
+                        new_pre_token.append(cur_token[idx])
                         idx += 1
-                new_pre_tokens.append(new_token)
-            pre_tokens = new_pre_tokens
+                cur_token = new_pre_token
+            # 当前pre token已经更新完毕，将它更新到原文本中
+            for pos in pre_tokens_pos[pre_token]:
+                pre_tokens[pos] = cur_token
 
         token_ids = []
         for token in pre_tokens:
@@ -114,7 +131,7 @@ class BPETokenizer:
         memory-eﬀicient tokenization of large files that we cannot directly load
         into memory."""
         for text in iterable:
-            token_ids =  self.encode(text)
+            token_ids = self.encode(text)
             for token_id in token_ids:
                 yield token_id
 
