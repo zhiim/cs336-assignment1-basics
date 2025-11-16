@@ -117,3 +117,38 @@ class RMSNorm(nn.Module):
         )
 
         return normed.to(in_dtype)
+
+
+class FFN(nn.Module):
+    def __init__(
+        self,
+        d_model: int,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
+    ):
+        """the SwiGLU feed-forward network, composed of a SiLU activation
+        function and a GLU."""
+        super().__init__()
+
+        d_ff = int(((8 / 3) * d_model) // 64 * 64)
+        self.w1 = nn.Parameter(
+            torch.zeros((d_ff, d_model), device=device, dtype=dtype)
+        )
+        self.w2 = nn.Parameter(
+            torch.zeros((d_model, d_ff), device=device, dtype=dtype)
+        )
+        self.w3 = nn.Parameter(
+            torch.zeros((d_ff, d_model), device=device, dtype=dtype)
+        )
+
+    def forward(self, x: torch.Tensor):
+        w1_x = einsum(x, self.w1, "b seq d_model, d_ff d_model -> b seq d_ff")
+        w1_x = w1_x * torch.sigmoid(w1_x)
+
+        w3_x = einsum(x, self.w3, "b seq d_model, d_ff d_model -> b seq d_ff")
+
+        out = einsum(
+            w1_x * w3_x, self.w2, "b seq d_ff, d_model d_ff -> b seq d_model"
+        )
+
+        return out
