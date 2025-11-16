@@ -205,3 +205,15 @@ class RotaryPositionalEmbedding(nn.Module):
             self.rotary_matrix[token_positions],
             "b seq d, seq d1 d -> b seq d1",
         )
+
+
+def softmax(x: torch.Tensor, dim: int) -> torch.Tensor:
+    max_x, _ = torch.max(x, dim=dim, keepdim=True)
+    x = x - max_x
+
+    exp_x = torch.exp(x)
+    sum_exp_x = torch.sum(exp_x, dim=dim, keepdim=True)
+
+    out = exp_x / sum_exp_x
+
+    return out
