@@ -2,7 +2,7 @@ from math import sqrt
 
 import torch
 import torch.nn as nn
-from einops import einsum, reduce
+from einops import einsum, pack, rearrange, reduce
 
 
 class Linear(nn.Module):
@@ -152,3 +152,56 @@ class FFN(nn.Module):
         )
 
         return out
+
+
+class RotaryPositionalEmbedding(nn.Module):
+    def __init__(
+        self,
+        theta: float,
+        d_k: int,
+        max_seq_len: int,
+        device: torch.device | None = None,
+    ) -> None:
+        """Construct the RoPE module.
+
+        Args:
+            theta (float): theta value for the RoPE
+            d_k (int): dimension of query and key vectors
+            max_seq_len (int): Maximum sequence length that will be inputted
+            device (torch.device | None): Device to store the buffer on
+        """
+        super().__init__()
+
+        thetas = einsum(
+            torch.arange(max_seq_len),
+            1 / (theta ** (2 * torch.arange(d_k // 2) / d_k)),
+            "max_seq_len, d_k_half -> max_seq_len d_k_half",
+        )
+
+        cos_thetas = torch.cos(thetas)
+        sin_thetas = torch.sin(thetas)
+        rotary_row_1, _ = pack([cos_thetas, -sin_thetas], "seq d *")
+        rotary_row_2, _ = pack([sin_thetas, cos_thetas], "seq d *")
+        rotary_blocks, _ = pack(
+            [
+                rearrange(rotary_row_1, "seq d (n1 n2) -> seq d n1 n2", n1=1),
+                rearrange(rotary_row_2, "seq d (n1 n2) -> seq d n1 n2", n1=1),
+            ],
+            "seq d * n",
+        )
+
+        rotary_matrix_list = [
+            torch.block_diag(*block) for block in rotary_blocks
+        ]
+        rotary_matrix, _ = pack(rotary_matrix_list, "* d1 d2")
+
+        self.register_buffer("rotary_matrix", rotary_matrix, persistent=False)
+
+    def forward(
+        self, x: torch.Tensor, token_positions: torch.Tensor
+    ) -> torch.Tensor:
+        return einsum(
+            x,
+            self.rotary_matrix[token_positions],
+            "b seq d, seq d1 d -> b seq d1",
+        )
