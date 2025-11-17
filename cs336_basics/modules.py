@@ -162,6 +162,7 @@ class RotaryPositionalEmbedding(nn.Module):
         d_k: int,
         max_seq_len: int,
         device: torch.device | None = None,
+        dtype: torch.device | None = None,
     ) -> None:
         """Construct the RoPE module.
 
@@ -196,6 +197,10 @@ class RotaryPositionalEmbedding(nn.Module):
         ]
         rotary_matrix, _ = pack(rotary_matrix_list, "* d1 d2")
 
+        if dtype is not None:
+            rotary_matrix.to(dtype)
+        if device is not None:
+            rotary_matrix.to(device)
         self.register_buffer("rotary_matrix", rotary_matrix, persistent=False)
 
     def forward(
@@ -359,3 +364,73 @@ class TransformerLayer(nn.Module):
         x = x + x_ffn
 
         return x
+
+
+class Transformer(nn.Module):
+    def __init__(
+        self,
+        vocab_size: int,
+        context_length: int,
+        num_layers: int,
+        d_model: int,
+        num_heads: int,
+        d_ff: int,
+        eps: float = 1e-5,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
+    ):
+        """Transformer LM
+
+        Args:
+            vocab_size (int): The size of the vocabulary, necessary for
+                determining the dimensionality of the token embedding matrix.
+            context_length (int): The maximum context length, necessary for
+                determining the dimensionality of the position embedding matrix.
+            num_layers (int): The number of Transformer blocks to use.
+        """
+        super().__init__()
+
+        self.embedding = Embedding(
+            num_embeddings=vocab_size,
+            embedding_dim=d_model,
+            device=device,
+            dtype=dtype,
+        )
+
+        self.trans_layers = nn.Sequential()
+        for _ in range(num_layers):
+            self.trans_layers.append(
+                TransformerLayer(
+                    d_model=d_model,
+                    num_heads=num_heads,
+                    d_ff=d_ff,
+                    eps=eps,
+                    device=device,
+                    dtype=dtype,
+                )
+            )
+
+        self.norm = RMSNorm(
+            d_model=d_model, eps=eps, device=device, dtype=dtype
+        )
+
+        self.linear = Linear(
+            in_features=d_model,
+            out_features=vocab_size,
+            device=device,
+            dtype=dtype,
+        )
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        rope: RotaryPositionalEmbedding | None = None,
+        token_positions: torch.Tensor | None = None,
+    ):
+        embedd = self.embedding(x)
+
+        trans_out = self.trans_layers(embedd)
+
+        out = self.linear(self.norm(trans_out))
+
+        return softmax(out, dim=-1)
