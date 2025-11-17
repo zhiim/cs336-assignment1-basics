@@ -123,6 +123,7 @@ class FFN(nn.Module):
     def __init__(
         self,
         d_model: int,
+        d_ff: int | None = None,
         device: torch.device | None = None,
         dtype: torch.dtype | None = None,
     ):
@@ -130,7 +131,9 @@ class FFN(nn.Module):
         function and a GLU."""
         super().__init__()
 
-        d_ff = int(((8 / 3) * d_model) // 64 * 64)
+        if d_ff is None:
+            d_ff = int(((8 / 3) * d_model) // 64 * 64)
+
         self.w1 = Linear(
             in_features=d_model, out_features=d_ff, device=device, dtype=dtype
         )
@@ -249,28 +252,28 @@ class MultiHeadAttention(nn.Module):
 
         self.num_heads = num_heads
 
-        self.dim_head = d_model // num_heads
+        dim_head = d_model // num_heads
 
         self.w_q = Linear(
             in_features=d_model,
-            out_features=num_heads * self.dim_head,
+            out_features=num_heads * dim_head,
             device=device,
             dtype=dtype,
         )
         self.w_k = Linear(
             in_features=d_model,
-            out_features=num_heads * self.dim_head,
+            out_features=num_heads * dim_head,
             device=device,
             dtype=dtype,
         )
         self.w_v = Linear(
             in_features=d_model,
-            out_features=num_heads * self.dim_head,
+            out_features=num_heads * dim_head,
             device=device,
             dtype=dtype,
         )
         self.w_o = Linear(
-            in_features=num_heads * self.dim_head,
+            in_features=num_heads * dim_head,
             out_features=d_model,
             device=device,
             dtype=dtype,
@@ -295,7 +298,7 @@ class MultiHeadAttention(nn.Module):
 
         if rope is not None:
             if token_positions is None:
-                token_positions = torch.arange(self.dim_head)
+                token_positions = torch.arange(seq_len)
             q = rope(q, token_positions)
             k = rope(k, token_positions)
 
@@ -306,3 +309,53 @@ class MultiHeadAttention(nn.Module):
         out = self.w_o(atten_out)
 
         return out
+
+
+class TransformerLayer(nn.Module):
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        d_ff: int,
+        eps: float = 1e-5,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
+    ):
+        """TransformerLayer.
+
+        Args:
+            d_model (int): Dimensionality of the Transformer block inputs.
+            num_heads (int): Number of heads to use in multi-head self-attention
+            d_ff (int): Dimensionality of the position-wise feed-forward inner
+                layer
+        """
+        super().__init__()
+
+        self.atten = MultiHeadAttention(
+            d_model=d_model, num_heads=num_heads, device=device, dtype=dtype
+        )
+
+        self.ffn = FFN(d_model=d_model, d_ff=d_ff, device=device, dtype=dtype)
+
+        self.norm1 = RMSNorm(
+            d_model=d_model, eps=eps, device=device, dtype=dtype
+        )
+        self.norm2 = RMSNorm(
+            d_model=d_model, eps=eps, device=device, dtype=dtype
+        )
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        rope: RotaryPositionalEmbedding | None = None,
+        token_positions: torch.Tensor | None = None,
+    ):
+        x_norm = self.norm1(x)
+        x_atten = self.atten(x_norm, rope, token_positions)
+        x = x + x_atten
+
+        x_norm = self.norm2(x)
+        x_ffn = self.ffn(x_norm)
+        x = x + x_ffn
+
+        return x

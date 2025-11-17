@@ -314,7 +314,22 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    raise NotImplementedError
+    from cs336_basics.modules import TransformerLayer, RotaryPositionalEmbedding
+
+    trans = TransformerLayer(d_model=d_model, num_heads=num_heads, d_ff=d_ff)
+    trans.atten.w_q.load_state_dict({"w": weights["attn.q_proj.weight"]})
+    trans.atten.w_k.load_state_dict({"w": weights["attn.k_proj.weight"]})
+    trans.atten.w_v.load_state_dict({"w": weights["attn.v_proj.weight"]})
+    trans.atten.w_o.load_state_dict({"w": weights["attn.output_proj.weight"]})
+    trans.norm1.load_state_dict({"gain": weights["ln1.weight"]})
+    trans.ffn.w1.load_state_dict({"w": weights["ffn.w1.weight"]})
+    trans.ffn.w2.load_state_dict({"w": weights["ffn.w2.weight"]})
+    trans.ffn.w3.load_state_dict({"w": weights["ffn.w3.weight"]})
+    trans.norm2.load_state_dict({"gain": weights["ln2.weight"]})
+
+    rope = RotaryPositionalEmbedding(theta=theta, d_k=d_model // num_heads, max_seq_len=max_seq_len)
+
+    return trans(in_features, rope)
 
 
 def run_transformer_lm(
