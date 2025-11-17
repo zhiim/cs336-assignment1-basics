@@ -94,7 +94,9 @@ def run_swiglu(
     from cs336_basics.modules import FFN
 
     ffn = FFN(d_model=d_model)
-    ffn.load_state_dict({"w1": w1_weight, "w2": w2_weight, "w3": w3_weight})
+    ffn.w1.load_state_dict({"w": w1_weight})
+    ffn.w2.load_state_dict({"w": w2_weight})
+    ffn.w3.load_state_dict({"w": w3_weight})
 
     return ffn(in_features)
 
@@ -153,7 +155,15 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    from cs336_basics.modules import MultiHeadAttention
+
+    atten = MultiHeadAttention(d_model=d_model, num_heads=num_heads)
+    atten.w_q.load_state_dict({"w": q_proj_weight})
+    atten.w_k.load_state_dict({"w": k_proj_weight})
+    atten.w_v.load_state_dict({"w": v_proj_weight})
+    atten.w_o.load_state_dict({"w": o_proj_weight})
+
+    return atten(in_features)
 
 
 def run_multihead_self_attention_with_rope(
@@ -193,7 +203,17 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    from cs336_basics.modules import RotaryPositionalEmbedding, MultiHeadAttention
+
+    rope = RotaryPositionalEmbedding(theta=theta, d_k=d_model // num_heads, max_seq_len=max_seq_len)
+
+    atten = MultiHeadAttention(d_model=d_model, num_heads=num_heads)
+    atten.w_q.load_state_dict({"w": q_proj_weight})
+    atten.w_k.load_state_dict({"w": k_proj_weight})
+    atten.w_v.load_state_dict({"w": v_proj_weight})
+    atten.w_o.load_state_dict({"w": o_proj_weight})
+
+    return atten(in_features, rope, token_positions)
 
 
 def run_rope(
@@ -217,7 +237,9 @@ def run_rope(
     """
     from cs336_basics.modules import RotaryPositionalEmbedding
 
-    rope = RotaryPositionalEmbedding(theta=theta, d_k=d_k, max_seq_len=max_seq_len)
+    rope = RotaryPositionalEmbedding(
+        theta=theta, d_k=d_k, max_seq_len=max_seq_len
+    )
 
     return rope(in_query_or_key, token_positions)
 
@@ -306,7 +328,7 @@ def run_transformer_lm(
     weights: dict[str, Tensor],
     in_indices: Int[Tensor, " batch_size sequence_length"],
 ) -> Float[Tensor, " batch_size sequence_length vocab_size"]:
-    """Given the weights of a Transformer language model and input indices,
+    r"""Given the weights of a Transformer language model and input indices,
     return the output of running a forward pass on the input indices.
 
     This function should use RoPE.
@@ -442,7 +464,9 @@ def run_get_batch(
     raise NotImplementedError
 
 
-def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:
+def run_softmax(
+    in_features: Float[Tensor, " ..."], dim: int
+) -> Float[Tensor, " ..."]:
     """
     Given a tensor of inputs, return the output of softmaxing the given `dim`
     of the input.
@@ -461,7 +485,8 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
 
 
 def run_cross_entropy(
-    inputs: Float[Tensor, " batch_size vocab_size"], targets: Int[Tensor, " batch_size"]
+    inputs: Float[Tensor, " batch_size vocab_size"],
+    targets: Int[Tensor, " batch_size"],
 ) -> Float[Tensor, ""]:
     """Given a tensor of inputs and targets, compute the average cross-entropy
     loss across examples.
@@ -478,7 +503,9 @@ def run_cross_entropy(
     raise NotImplementedError
 
 
-def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float) -> None:
+def run_gradient_clipping(
+    parameters: Iterable[torch.nn.Parameter], max_l2_norm: float
+) -> None:
     """Given a set of parameters, clip their combined gradients to have l2 norm at most max_l2_norm.
 
     Args:

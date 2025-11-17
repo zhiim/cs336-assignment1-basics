@@ -131,25 +131,23 @@ class FFN(nn.Module):
         super().__init__()
 
         d_ff = int(((8 / 3) * d_model) // 64 * 64)
-        self.w1 = nn.Parameter(
-            torch.zeros((d_ff, d_model), device=device, dtype=dtype)
+        self.w1 = Linear(
+            in_features=d_model, out_features=d_ff, device=device, dtype=dtype
         )
-        self.w2 = nn.Parameter(
-            torch.zeros((d_model, d_ff), device=device, dtype=dtype)
+        self.w2 = Linear(
+            in_features=d_ff, out_features=d_model, device=device, dtype=dtype
         )
-        self.w3 = nn.Parameter(
-            torch.zeros((d_ff, d_model), device=device, dtype=dtype)
+        self.w3 = Linear(
+            in_features=d_model, out_features=d_ff, device=device, dtype=dtype
         )
 
     def forward(self, x: torch.Tensor):
-        w1_x = einsum(x, self.w1, "b seq d_model, d_ff d_model -> b seq d_ff")
+        w1_x = self.w1(x)
         w1_x = w1_x * torch.sigmoid(w1_x)
 
-        w3_x = einsum(x, self.w3, "b seq d_model, d_ff d_model -> b seq d_ff")
+        w3_x = self.w3(x)
 
-        out = einsum(
-            w1_x * w3_x, self.w2, "b seq d_ff, d_model d_ff -> b seq d_model"
-        )
+        out = self.w2(w1_x * w3_x)
 
         return out
 
@@ -203,7 +201,7 @@ class RotaryPositionalEmbedding(nn.Module):
         return einsum(
             x,
             self.rotary_matrix[token_positions],
-            "b seq d, seq d1 d -> b seq d1",
+            "... seq d, ... seq d1 d -> ... seq d1",
         )
 
 
@@ -231,3 +229,80 @@ def scaled_dot_product_attention(
     out = einsum(atten_score, v, "... n m, ... m d -> ... n d")
 
     return out
+
+
+class MultiHeadAttention(nn.Module):
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
+    ):
+        """Casusal multi-head self-attention
+
+        Args:
+            d_model (int): Dimensionality of the Transformer block inputs
+            num_heads (int): Number of heads to use in multi-head self-attention
+        """
+        super().__init__()
+
+        self.num_heads = num_heads
+
+        self.dim_head = d_model // num_heads
+
+        self.w_q = Linear(
+            in_features=d_model,
+            out_features=num_heads * self.dim_head,
+            device=device,
+            dtype=dtype,
+        )
+        self.w_k = Linear(
+            in_features=d_model,
+            out_features=num_heads * self.dim_head,
+            device=device,
+            dtype=dtype,
+        )
+        self.w_v = Linear(
+            in_features=d_model,
+            out_features=num_heads * self.dim_head,
+            device=device,
+            dtype=dtype,
+        )
+        self.w_o = Linear(
+            in_features=num_heads * self.dim_head,
+            out_features=d_model,
+            device=device,
+            dtype=dtype,
+        )
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        rope: RotaryPositionalEmbedding | None = None,
+        token_positions: torch.Tensor | None = None,
+    ):
+        seq_len = x.size(-2)
+        mask = torch.tril(torch.ones(seq_len, seq_len).bool())
+
+        q = self.w_q(x)
+        k = self.w_k(x)
+        v = self.w_v(x)
+
+        q = rearrange(q, "b seq (h dh) -> b h seq dh", h=self.num_heads)
+        k = rearrange(k, "b seq (h dh) -> b h seq dh", h=self.num_heads)
+        v = rearrange(v, "b seq (h dh) -> b h seq dh", h=self.num_heads)
+
+        if rope is not None:
+            if token_positions is None:
+                token_positions = torch.arange(self.dim_head)
+            q = rope(q, token_positions)
+            k = rope(k, token_positions)
+
+        atten_out = scaled_dot_product_attention(q, k, v, mask)
+
+        atten_out = rearrange(atten_out, "b h seq dh -> b seq (h dh)")
+
+        out = self.w_o(atten_out)
+
+        return out
