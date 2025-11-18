@@ -411,7 +411,26 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    from cs336_basics.modules import Transformer, RotaryPositionalEmbedding
+
+    model = Transformer(vocab_size=vocab_size, context_length=context_length, num_layers=num_layers, d_model=d_model, num_heads=num_heads, d_ff=d_ff)
+    model.embedding.load_state_dict({"embedding_map": weights["token_embeddings.weight"]})
+    for i in range(num_layers):
+        model.trans_layers[i].atten.w_q.load_state_dict({"w": weights[f"layers.{i}.attn.q_proj.weight"]})
+        model.trans_layers[i].atten.w_k.load_state_dict({"w": weights[f"layers.{i}.attn.k_proj.weight"]})
+        model.trans_layers[i].atten.w_v.load_state_dict({"w": weights[f"layers.{i}.attn.v_proj.weight"]})
+        model.trans_layers[i].atten.w_o.load_state_dict({"w": weights[f"layers.{i}.attn.output_proj.weight"]})
+        model.trans_layers[i].norm1.load_state_dict({"gain": weights[f"layers.{i}.ln1.weight"]})
+        model.trans_layers[i].ffn.w1.load_state_dict({"w": weights[f"layers.{i}.ffn.w1.weight"]})
+        model.trans_layers[i].ffn.w2.load_state_dict({"w": weights[f"layers.{i}.ffn.w2.weight"]})
+        model.trans_layers[i].ffn.w3.load_state_dict({"w": weights[f"layers.{i}.ffn.w3.weight"]})
+        model.trans_layers[i].norm2.load_state_dict({"gain": weights[f"layers.{i}.ln2.weight"]})
+    model.norm.load_state_dict({"gain": weights["ln_final.weight"]})
+    model.linear.load_state_dict({"w": weights["lm_head.weight"]})
+
+    rope = RotaryPositionalEmbedding(theta=rope_theta, d_k=d_model // num_heads, max_seq_len=context_length)
+
+    return model(in_indices, rope)
 
 
 def run_rmsnorm(

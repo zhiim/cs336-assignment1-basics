@@ -397,7 +397,7 @@ class Transformer(nn.Module):
             dtype=dtype,
         )
 
-        self.trans_layers = nn.Sequential()
+        self.trans_layers = []
         for _ in range(num_layers):
             self.trans_layers.append(
                 TransformerLayer(
@@ -429,8 +429,10 @@ class Transformer(nn.Module):
     ):
         embedd = self.embedding(x)
 
-        trans_out = self.trans_layers(embedd)
+        trans_out = embedd
+        for trans_layer in self.trans_layers:
+            trans_out = trans_layer(trans_out, rope, token_positions)
 
         out = self.linear(self.norm(trans_out))
 
-        return softmax(out, dim=-1)
+        return out
