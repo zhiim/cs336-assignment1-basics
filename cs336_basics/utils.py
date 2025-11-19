@@ -1,5 +1,6 @@
 from math import cos, pi
 
+import numpy as np
 import torch
 
 
@@ -34,3 +35,23 @@ def gradient_clipping(params, max_norm: float, eps: float = 1e-6):
             if param.grad is None:
                 continue
             param.grad.mul_(max_norm / (norm_p_grad + eps))
+
+
+def data_loading(
+    x: np.array, batch_size: int, context_length: int, device: str
+):
+    total_len = len(x)
+    sample_idxs = np.random.choice(total_len - context_length, batch_size)
+    data = np.concatenate(
+        [x[idx : idx + context_length].reshape(1, -1) for idx in sample_idxs],
+        axis=0,
+    )
+    label = np.concatenate(
+        [
+            x[idx + 1 : idx + context_length + 1].reshape(1, -1)
+            for idx in sample_idxs
+        ],
+        axis=0,
+    )
+
+    return (torch.Tensor(data).to(device), torch.Tensor(label).to(device))
