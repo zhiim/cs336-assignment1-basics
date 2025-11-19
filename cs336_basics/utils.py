@@ -18,12 +18,19 @@ def cosine_learning_rate_schedule(
     return lr_t
 
 
+@torch.no_grad()
 def gradient_clipping(params, max_norm: float, eps: float = 1e-6):
+    param_grads = []
     for param in params:
         if param.grad is None:
             continue
+        param_grads.append(
+            param.grad.detach()
+        )  # 从计算图分离，防止影响梯度计算
+    norm_p_grad = torch.linalg.norm(torch.stack(param_grads))
 
-        with torch.no_grad():
-            norm_p_grad = torch.linalg.norm(param.grad)
-            if norm_p_grad >= max_norm:
-                param.grad.mul_(max_norm / (norm_p_grad + eps))
+    if norm_p_grad >= max_norm:
+        for param in params:
+            if param.grad is None:
+                continue
+            param.grad.mul_(max_norm / (norm_p_grad + eps))

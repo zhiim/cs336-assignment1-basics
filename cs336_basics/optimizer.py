@@ -21,6 +21,7 @@ class AdamW(torch.optim.Optimizer):
         }
         super().__init__(params, defaults)
 
+    @torch.no_grad()
     def step(self, closure: Optional[Callable] = None):
         loss = None if closure is None else closure()
 
@@ -41,7 +42,7 @@ class AdamW(torch.optim.Optimizer):
                 v = state.get("v", torch.zeros_like(p))
                 t = state.get("t", 1)
 
-                grad = p.grad.data
+                grad = p.grad.detach()
 
                 # calculate m and v
                 m = betas[0] * m + (1 - betas[0]) * grad
@@ -49,8 +50,8 @@ class AdamW(torch.optim.Optimizer):
 
                 # update parameter
                 lr_ = lr * sqrt(1 - betas[1] ** t) / (1 - betas[0] ** t)
-                p_ = p - lr_ * (m / (torch.sqrt(v) + eps))
-                p.data = p_ - lr * weight_decay * p_
+                p.add_(m / (torch.sqrt(v) + eps), alpha=-lr_)
+                p.mul_(1 - lr * weight_decay)
 
                 state["m"] = m
                 state["v"] = v
