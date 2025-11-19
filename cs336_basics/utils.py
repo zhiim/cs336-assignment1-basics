@@ -1,4 +1,6 @@
+import os
 from math import cos, pi
+from typing import IO, BinaryIO
 
 import numpy as np
 import torch
@@ -6,7 +8,7 @@ import torch
 
 def cosine_learning_rate_schedule(
     t: int, lr_max: float, lr_min: float, t_w: int, t_c: int
-):
+) -> float:
     if t < t_w:
         lr_t = t / t_w * lr_max
     elif t > t_c:
@@ -20,7 +22,7 @@ def cosine_learning_rate_schedule(
 
 
 @torch.no_grad()
-def gradient_clipping(params, max_norm: float, eps: float = 1e-6):
+def gradient_clipping(params, max_norm: float, eps: float = 1e-6) -> None:
     param_grads = []
     for param in params:
         if param.grad is None:
@@ -39,7 +41,7 @@ def gradient_clipping(params, max_norm: float, eps: float = 1e-6):
 
 def data_loading(
     x: np.array, batch_size: int, context_length: int, device: str
-):
+) -> tuple[torch.Tensor]:
     total_len = len(x)
     sample_idxs = np.random.choice(total_len - context_length, batch_size)
     data = np.concatenate(
@@ -55,3 +57,30 @@ def data_loading(
     )
 
     return (torch.Tensor(data).to(device), torch.Tensor(label).to(device))
+
+
+def save_checkpoint(
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    iteration: int,
+    out: str | os.PathLike | BinaryIO | IO[bytes],
+) -> None:
+    state = {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "iteration": iteration,
+    }
+
+    torch.save(state, out)
+
+
+def load_checkpoint(
+    src: str | os.PathLike | BinaryIO | IO[bytes],
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+) -> int:
+    state = torch.load(src)
+    model.load_state_dict(state["model"])
+    optimizer.load_state_dict(state["optimizer"])
+
+    return state["iteration"]

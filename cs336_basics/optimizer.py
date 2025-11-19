@@ -35,7 +35,7 @@ class AdamW(torch.optim.Optimizer):
                 if p.grad is None:
                     continue
 
-                state = self.state["p"]
+                state = self.state[p]
 
                 # get current m, v and t
                 m = state.get("m", torch.zeros_like(p))
