@@ -4,6 +4,9 @@ from typing import IO, BinaryIO
 
 import numpy as np
 import torch
+import torch.nn as nn
+
+from cs336_basics.modules import softmax
 
 
 def cosine_learning_rate_schedule(
@@ -84,3 +87,45 @@ def load_checkpoint(
     optimizer.load_state_dict(state["optimizer"])
 
     return state["iteration"]
+
+
+def decode(
+    prompt: torch.Tensor,
+    model: nn.Module,
+    max_num_tokens: int,
+    temperature: float,
+    top_p: float,
+    vocab: dict[int, bytes],
+):
+    completion = []
+    while not (
+        len(completion) >= max_num_tokens
+        or (len(completion) > 0 and completion[-1] == b"<|endoftext|>")
+    ):
+        pred = model(prompt)[-1]
+
+        prob = softmax(pred / temperature)
+
+        idx_prob = {idx: p.detach().item() for idx, p in enumerate(prob)}
+        idx_prob = sorted(
+            idx_prob.items(), key=lambda item: item[1], reverse=True
+        )
+
+        accumlate = 0.0
+        probs = []
+        idxs = []
+        for idx, p in idx_prob:
+            probs.append(p)
+            idxs.append(idx)
+            accumlate += p
+            if accumlate >= top_p:
+                break
+
+        selected = np.random.choice(idxs, size=1, p=probs)[0]
+
+        completion.append[vocab[selected]]
+
+    out = b"".join(completion[:-1])
+    out = out.decode("utf-8")
+
+    return out
