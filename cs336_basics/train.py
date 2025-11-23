@@ -6,7 +6,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from cs336_basics.loss import cross_entropy
-from cs336_basics.modules import Transformer
+from cs336_basics.modules import RotaryPositionalEmbedding, Transformer
 from cs336_basics.optimizer import AdamW
 from cs336_basics.utils import (
     cosine_learning_rate_schedule,
@@ -90,6 +90,12 @@ def train(config: dict, resume=False):
         eps=opt_eps,
         weight_decay=weight_decay,
     )
+    rope = RotaryPositionalEmbedding(
+        theta=100000,
+        dim=d_model // num_heads,
+        max_seq_len=context_length,
+        device=torch.device(device),
+    )
 
     writer.add_graph(
         model,
@@ -120,7 +126,7 @@ def train(config: dict, resume=False):
                 device=device,
             )
 
-            pred = model(data)
+            pred = model(data, rope)
 
             loss = cross_entropy(pred, target)
 
