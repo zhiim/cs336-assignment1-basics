@@ -53,6 +53,8 @@ def train(config: dict, resume=False):
     betas = config["betas"]
     opt_eps = config["opt_eps"]
     weight_decay = config["weight_decay"]
+    # Rope config
+    theta = config["theta"]
     # training config
     num_epochs = config["num_epochs"]
     batch_size = config["batch_size"]
@@ -91,7 +93,7 @@ def train(config: dict, resume=False):
         weight_decay=weight_decay,
     )
     rope = RotaryPositionalEmbedding(
-        theta=100000,
+        theta=theta,
         dim=d_model // num_heads,
         max_seq_len=context_length,
         device=torch.device(device),
