@@ -35,12 +35,11 @@ def clear_checkpoints(path: str, num_max: int):
 def train(config: dict, resume=False):
     # common config
     record_path = config["record_path"]
+    device = config["device"]
     # data config
     train_data_path = config["train_data_path"]
     val_data_path = config["val_data_path"]
-    context_length = config["context_length"]
     # model config
-    device = config["device"]
     vocab_size = config["vocab_size"]
     context_length = config["context_length"]
     num_layers = config["num_layers"]
@@ -48,16 +47,17 @@ def train(config: dict, resume=False):
     num_heads = config["num_heads"]
     d_ff = config["d_ff"]
     model_eps = config["model_eps"]
+    # Rope config
+    theta = config["theta"]
     # optimizer config
     learning_rate = config["learning_rate"]
     betas = config["betas"]
     opt_eps = config["opt_eps"]
     weight_decay = config["weight_decay"]
-    # Rope config
-    theta = config["theta"]
     # training config
     num_epochs = config["num_epochs"]
     batch_size = config["batch_size"]
+    num_total_processes = config["num_total_processes"]
     log_step = config["log_step"]
     early_stop = config["early_stop"]
     checkpoint_max_num = config["checkpoint_max_num"]
@@ -68,7 +68,6 @@ def train(config: dict, resume=False):
     lr_max = config["lr_max"]
     lr_min = config["lr_min"]
     warm_step = config["warm_step"]
-    cos_step = config["cos_step"]
 
     writer = SummaryWriter(record_path)
 
@@ -85,18 +84,18 @@ def train(config: dict, resume=False):
         eps=model_eps,
         device=torch.device(device),
     )
+    rope = RotaryPositionalEmbedding(
+        theta=theta,
+        dim=d_model // num_heads,
+        max_seq_len=context_length,
+        device=torch.device(device),
+    )
     optimizer = AdamW(
         model.parameters(),
         lr=learning_rate,
         betas=betas,
         eps=opt_eps,
         weight_decay=weight_decay,
-    )
-    rope = RotaryPositionalEmbedding(
-        theta=theta,
-        dim=d_model // num_heads,
-        max_seq_len=context_length,
-        device=torch.device(device),
     )
 
     writer.add_graph(
@@ -106,7 +105,9 @@ def train(config: dict, resume=False):
         ),
     )
 
-    step_each_epoch = len(train_data) // batch_size
+    step_each_epoch = num_total_processes // (
+        num_epochs * batch_size * context_length
+    )
     val_step = len(val_data) // batch_size
     loss_min = float("inf")
     early_stop_count = 0
@@ -143,7 +144,7 @@ def train(config: dict, resume=False):
                     lr_max,
                     lr_min,
                     t_w=warm_step,
-                    t_c=cos_step,
+                    t_c=step_each_epoch * num_epochs - warm_step,
                 )
             optimizer.step()
             optimizer.zero_grad()

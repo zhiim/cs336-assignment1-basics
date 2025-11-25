@@ -34,6 +34,6 @@ parser.add_argument("-r", "--resume", required=True, type=bool, default=False)
 args = parser.parse_args()
 
 with open(args.config) as f:
-    config = yaml.safe_load(f)
+    config = yaml.load(f, Loader=yaml.FullLoader)
 
 train(config, args.resume)
