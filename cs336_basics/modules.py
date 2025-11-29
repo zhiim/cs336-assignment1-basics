@@ -1,5 +1,3 @@
-from math import sqrt
-
 import torch
 import torch.nn as nn
 from einops import einsum, pack, rearrange, reduce
@@ -30,7 +28,7 @@ class Linear(nn.Module):
         self._init_weight(in_features, out_features)
 
     def _init_weight(self, in_features, out_features):
-        sigma = sqrt(2 / (in_features + out_features))
+        sigma = (2 / (in_features + out_features)) ** 0.5
         nn.init.trunc_normal_(self.w, 0, sigma, -3 * sigma, 3 * sigma)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -110,11 +108,7 @@ class RMSNorm(nn.Module):
             + self.eps
         )
 
-        normed = einsum(
-            einsum(x, 1 / rms, "b seq d_model, b seq -> b seq d_model"),
-            self.gain,
-            "... d_model, d_model -> ... d_model",
-        )
+        normed = x / rms.unsqueeze(-1) * self.gain
 
         return normed.to(in_dtype)
 
@@ -231,7 +225,7 @@ def scaled_dot_product_attention(
     mask = torch.where(mask, 0, -float("inf"))
 
     d = k.size(-1)  # dim of key
-    q_k = einsum(q, k, "... n d, ... m d -> ... n m") / sqrt(d)
+    q_k = einsum(q, k, "... n d, ... m d -> ... n m") / (d**0.5)
     atten_score = softmax(q_k + mask, dim=-1)
 
     out = einsum(atten_score, v, "... n m, ... m d -> ... n d")
@@ -397,7 +391,7 @@ class Transformer(nn.Module):
             dtype=dtype,
         )
 
-        self.trans_layers = []
+        self.trans_layers = nn.ModuleList()
         for _ in range(num_layers):
             self.trans_layers.append(
                 TransformerLayer(

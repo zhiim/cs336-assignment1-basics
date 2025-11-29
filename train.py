@@ -12,11 +12,11 @@ setup_logging(file_name)
 
 parser = argparse.ArgumentParser(prog="Transformer LM trainer")
 parser.add_argument("-c", "--config", required=True)
-parser.add_argument("-r", "--resume", required=True, type=bool, default=False)
+parser.add_argument("-r", "--resume_path", type=str, default=None)
 
 args = parser.parse_args()
 
 with open(args.config) as f:
-    config = yaml.load(f, Loader=yaml.FullLoader)
+    config = yaml.safe_load(f)
 
-train(config, args.resume)
+train(config, args.resume_path)

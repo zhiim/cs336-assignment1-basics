@@ -26,13 +26,13 @@ def clear_checkpoints(path: str, num_max: int):
     if len(checkpoints) > num_max:
         logging.info(
             f"the number of saved checkpoint is larger than {num_max}, "
-            "{checkpoints[0]} is deleted"
+            f"{checkpoints[0]} is deleted"
         )
         checkpoints.sort(key=lambda x: int(x.split("_")[-1].split(".")[0]))
         os.remove(os.path.join(path, checkpoints[0]))
 
 
-def train(config: dict, resume=False):
+def train(config: dict, resume_path=None):
     # common config
     record_path = config["record_path"]
     device = config["device"]
@@ -51,7 +51,7 @@ def train(config: dict, resume=False):
     theta = config["theta"]
     # optimizer config
     learning_rate = config["learning_rate"]
-    betas = config["betas"]
+    betas = tuple(config["betas"])
     opt_eps = config["opt_eps"]
     weight_decay = config["weight_decay"]
     # training config
@@ -69,7 +69,7 @@ def train(config: dict, resume=False):
     lr_min = config["lr_min"]
     warm_step = config["warm_step"]
 
-    writer = SummaryWriter(record_path)
+    writer = SummaryWriter(f"saved/{record_path}")
 
     train_data = np.load(train_data_path, mmap_mode="r")
     val_data = np.load(val_data_path, mmap_mode="r")
@@ -86,7 +86,7 @@ def train(config: dict, resume=False):
     )
     rope = RotaryPositionalEmbedding(
         theta=theta,
-        dim=d_model // num_heads,
+        d_k=d_model // num_heads,
         max_seq_len=context_length,
         device=torch.device(device),
     )
@@ -102,25 +102,27 @@ def train(config: dict, resume=False):
         model,
         input_to_model=torch.randint(
             0, vocab_size, (batch_size, context_length)
-        ),
+        ).to(torch.device(device)),
     )
 
     step_each_epoch = num_total_processes // (
         num_epochs * batch_size * context_length
     )
-    val_step = len(val_data) // batch_size
     loss_min = float("inf")
     early_stop_count = 0
     start_epoch = 1
 
-    if resume:
+    if resume_path:
         start_epoch = load_checkpoint(
-            src=record_path, model=model, optimizer=optimizer
+            src=resume_path,
+            model=model,
+            optimizer=optimizer,
         )
 
     for epoch in range(start_epoch, num_epochs + 1):
         logging.info(f"-- training epoch {epoch} ".ljust(80, "-"))
 
+        model.train()
         for step in range(step_each_epoch):
             data, target = data_loading(
                 train_data,
@@ -161,39 +163,41 @@ def train(config: dict, resume=False):
 
         logging.info("saving checkpoint...")
         save_checkpoint(
-            model, optimizer, epoch, f"{record_path}/epoch_{epoch}.pth"
+            model, optimizer, epoch, f"saved/{record_path}/epoch_{epoch}.pth"
         )
-        clear_checkpoints(record_path, checkpoint_max_num)
+        clear_checkpoints(f"saved/{record_path}", checkpoint_max_num)
 
         # validation
+        model.eval()
         val_loss = 0.0
         with torch.no_grad():
-            for step in range(val_step):
+            for step in range(step_each_epoch):
                 data, target = data_loading(
                     val_data, batch_size, context_length, device
                 )
-                loss = cross_entropy(model(data), target).detach().item()
+                loss = cross_entropy(model(data, rope), target).detach().item()
                 writer.add_scalar(
                     tag="validation_loss",
                     scalar_value=loss,
-                    global_step=(epoch - 1) * val_step + step,
+                    global_step=(epoch - 1) * step_each_epoch + step,
                 )
                 val_loss += loss
-        val_loss /= val_step
+        val_loss /= step_each_epoch
         logging.info(f"epoch: {epoch}, validation loss: {val_loss}")
 
         if val_loss < loss_min:
             logging.info("saving current best model...")
             save_checkpoint(
-                model, optimizer, epoch, f"{record_path}/best_model.pth"
+                model, optimizer, epoch, f"saved/{record_path}/best_model.pth"
             )
             early_stop_count = 0
+            loss_min = val_loss
         else:
             early_stop_count += 1
 
         if early_stop_count >= early_stop:
             logging.info(
-                f"model has not been optimized for {early_stop_count} epoches, "
+                f"model has not been optimized for {early_stop_count} epochs, "
                 "stop training"
             )
             break

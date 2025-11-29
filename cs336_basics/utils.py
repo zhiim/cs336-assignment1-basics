@@ -53,9 +53,9 @@ def gradient_clipping(params, max_norm: float, eps: float = 1e-6) -> None:
         if param.grad is None:
             continue
         param_grads.append(
-            param.grad.detach()
+            param.grad.detach().flatten()
         )  # 从计算图分离，防止影响梯度计算
-    norm_p_grad = torch.linalg.norm(torch.stack(param_grads))
+    norm_p_grad = torch.linalg.norm(torch.hstack(param_grads))
 
     if norm_p_grad >= max_norm:
         for param in params:
@@ -81,7 +81,10 @@ def data_loading(
         axis=0,
     )
 
-    return (torch.Tensor(data).to(device), torch.Tensor(label).to(device))
+    return (
+        torch.Tensor(data).to(torch.int).to(device),
+        torch.Tensor(label).to(torch.int).to(device),
+    )
 
 
 def save_checkpoint(
