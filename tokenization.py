@@ -26,7 +26,7 @@ merges_filepath = config["merges_filepath"]
 special_tokens = config["special_tokens"]
 data_path = config["data_path"]
 ids_save_path = config["ids_save_path"]
-chunk_size = config.get("chunk_size", 1e9)
+chunk_size = config.get("chunk_size", 1e6)
 
 logging.info(
     f"Initiate BPE tokenizer with vocab_filepath: '{vocab_filepath}', "
