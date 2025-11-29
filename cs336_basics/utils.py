@@ -1,4 +1,6 @@
+import logging
 import os
+from datetime import datetime
 from math import cos, pi
 from typing import IO, BinaryIO
 
@@ -7,6 +9,26 @@ import torch
 import torch.nn as nn
 
 from cs336_basics.modules import softmax
+
+
+def setup_logging(script_name: str):
+    # Check if handlers already exist to avoid duplicates
+    logger = logging.getLogger()
+    if not logger.handlers:
+        log_formatter = logging.Formatter(
+            "%(asctime)s [%(levelname)-8.8s] [%(filename)s:%(funcName)s] %(message)s"  # noqa
+        )
+
+        file_handler = logging.FileHandler(
+            f"{script_name}-{datetime.now().strftime('%Y-%m-%d-%H:%M:%S')}.log"
+        )
+        file_handler.setFormatter(log_formatter)
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(log_formatter)
+
+        logger.addHandler(file_handler)
+        logger.addHandler(console_handler)
+        logger.setLevel(logging.INFO)
 
 
 def cosine_learning_rate_schedule(
