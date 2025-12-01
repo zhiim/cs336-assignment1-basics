@@ -8,7 +8,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from cs336_basics.modules import softmax
+from cs336_basics.modules import RotaryPositionalEmbedding, softmax
 
 
 def setup_logging(script_name: str):
@@ -117,6 +117,7 @@ def load_checkpoint(
 def decode(
     prompt: torch.Tensor,
     model: nn.Module,
+    rope: RotaryPositionalEmbedding,
     max_num_tokens: int,
     temperature: float,
     top_p: float,
@@ -127,9 +128,9 @@ def decode(
         len(completion) >= max_num_tokens
         or (len(completion) > 0 and completion[-1] == b"<|endoftext|>")
     ):
-        pred = model(prompt)[-1]
+        pred = model(prompt, rope)[0][-1]
 
-        prob = softmax(pred / temperature)
+        prob = softmax(pred / temperature, dim=-1)
 
         idx_prob = {idx: p.detach().item() for idx, p in enumerate(prob)}
         idx_prob = sorted(
@@ -146,11 +147,14 @@ def decode(
             if accumlate >= top_p:
                 break
 
+        probs = np.array(probs)
+        probs = probs / probs.sum()
+
         selected = np.random.choice(idxs, size=1, p=probs)[0]
 
-        completion.append[vocab[selected]]
+        completion.append(vocab[selected])
 
     out = b"".join(completion[:-1])
-    out = out.decode("utf-8")
+    out = out.decode("utf-8", errors="replace")
 
     return out

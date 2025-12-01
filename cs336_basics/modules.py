@@ -364,7 +364,6 @@ class Transformer(nn.Module):
     def __init__(
         self,
         vocab_size: int,
-        context_length: int,
         num_layers: int,
         d_model: int,
         num_heads: int,
@@ -378,8 +377,6 @@ class Transformer(nn.Module):
         Args:
             vocab_size (int): The size of the vocabulary, necessary for
                 determining the dimensionality of the token embedding matrix.
-            context_length (int): The maximum context length, necessary for
-                determining the dimensionality of the position embedding matrix.
             num_layers (int): The number of Transformer blocks to use.
         """
         super().__init__()

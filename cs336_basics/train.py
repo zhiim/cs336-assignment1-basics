@@ -41,7 +41,6 @@ def train(config: dict, resume_path=None):
     val_data_path = config["val_data_path"]
     # model config
     vocab_size = config["vocab_size"]
-    context_length = config["context_length"]
     num_layers = config["num_layers"]
     d_model = config["d_model"]
     num_heads = config["num_heads"]
@@ -49,6 +48,7 @@ def train(config: dict, resume_path=None):
     model_eps = config["model_eps"]
     # Rope config
     theta = config["theta"]
+    context_length = config["context_length"]
     # optimizer config
     learning_rate = config["learning_rate"]
     betas = tuple(config["betas"])
@@ -76,7 +76,6 @@ def train(config: dict, resume_path=None):
 
     model = Transformer(
         vocab_size=vocab_size,
-        context_length=context_length,
         num_layers=num_layers,
         d_model=d_model,
         num_heads=num_heads,
