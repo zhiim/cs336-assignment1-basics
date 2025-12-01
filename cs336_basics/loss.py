@@ -13,7 +13,7 @@ def cross_entropy(pred: torch.Tensor, target: torch.Tensor):
     # to avoid log() on 0 value
     pred_ = torch.log(torch.sum(torch.exp(pred), dim=-1, keepdim=True)) - pred
 
-    target_one_hot = torch.eye(num_class)[target]
+    target_one_hot = torch.eye(num_class).to(pred.device)[target]
 
     result = torch.mean(pred_ * target_one_hot) * num_class
 

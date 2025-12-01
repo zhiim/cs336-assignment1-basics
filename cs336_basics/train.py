@@ -71,8 +71,8 @@ def train(config: dict, resume_path=None):
 
     writer = SummaryWriter(f"saved/{record_path}")
 
-    train_data = np.load(train_data_path, mmap_mode="r")
-    val_data = np.load(val_data_path, mmap_mode="r")
+    train_data = np.memmap(train_data_path, mode="r", dtype=np.uint16)
+    val_data = np.memmap(val_data_path, mode="r", dtype=np.uint16)
 
     model = Transformer(
         vocab_size=vocab_size,

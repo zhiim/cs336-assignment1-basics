@@ -192,9 +192,9 @@ class RotaryPositionalEmbedding(nn.Module):
         rotary_matrix, _ = pack(rotary_matrix_list, "* d1 d2")
 
         if dtype is not None:
-            rotary_matrix.to(dtype)
+            rotary_matrix = rotary_matrix.to(dtype)
         if device is not None:
-            rotary_matrix.to(device)
+            rotary_matrix = rotary_matrix.to(device)
         self.register_buffer("rotary_matrix", rotary_matrix, persistent=False)
 
     def forward(
@@ -285,7 +285,7 @@ class MultiHeadAttention(nn.Module):
         token_positions: torch.Tensor | None = None,
     ):
         seq_len = x.size(-2)
-        mask = torch.tril(torch.ones(seq_len, seq_len).bool())
+        mask = torch.tril(torch.ones(seq_len, seq_len).bool()).to(x.device)
 
         q = self.w_q(x)
         k = self.w_k(x)
