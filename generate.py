@@ -19,6 +19,9 @@ with open(args.config) as f:
 
 prompt = config["prompt"]
 max_num_tokens = config["max_num_tokens"]
+temperature = config["temperature"]
+top_k = config["top_k"]
+weight_path = config["weight_path"]
 vocab_filepath = config["vocab_filepath"]
 merges_filepath = config["merges_filepath"]
 context_length = config["context_length"]
@@ -43,6 +46,9 @@ model = Transformer(
     d_ff=d_ff,
     device=torch.device(device),
 )
+model.load_state_dict(
+    torch.load(weight_path, map_location=torch.device(device))["model"]
+)
 
 rope = RotaryPositionalEmbedding(
     theta=theta,
@@ -62,9 +68,9 @@ result = decode(
     model=model,
     rope=rope,
     max_num_tokens=max_num_tokens,
-    temperature=0.5,
-    top_p=0.5,
+    temperature=temperature,
+    top_p=top_k,
     vocab=tokenizer.vocab,
 )
 
-print(result)
+print(prompt + result)

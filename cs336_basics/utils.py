@@ -154,6 +154,14 @@ def decode(
 
         completion.append(vocab[selected])
 
+        prompt = torch.cat(
+            [
+                prompt,
+                torch.Tensor([[selected]]).to(torch.int).to(prompt.device),
+            ],
+            dim=1,
+        )
+
     out = b"".join(completion[:-1])
     out = out.decode("utf-8", errors="replace")
 
