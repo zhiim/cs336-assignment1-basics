@@ -1,0 +1,7 @@
+---
+vocab_filepath: "data/owt/owt_vocab.pkl"
+merges_filepath: "data/owt/owt_merges.pkl"
+special_tokens: ["<|endoftext|>"]
+data_path: "data/owt/owt_train.txt"
+ids_save_path: "data/owt/owt_train.npy"
+num_chunk: 1024
