@@ -1,0 +1,15 @@
+---
+prompt: "Hello world!"
+max_num_tokens: 100
+temperature: 1.0
+top_k: 0.5
+weight_path: "./saved/owt/best_model.pth"
+vocab_filepath: "./data/owt/owt_vocab.pkl"
+merges_filepath: "./data/owt/owt_merges.pkl"
+context_length: 256
+num_layers: 4
+num_heads: 16
+d_ff: 1344
+d_model: 512
+device: "cpu"
+theta: 10000
